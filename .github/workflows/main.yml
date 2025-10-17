@@ -1,20 +1,3 @@
-HOW TO CREATE FREE VPS 
-
-1. Generate auth key = "TAILSCALE_AUTH_KEY" (Description)
-
-2. git hub Actions secrets / New secret= Actions secrets / New secret
-
-3. (your repo name)24-7/.github/workflows
-/= 
-
-
-
-
-
-//////RDP CODE//////
-
-
-
 name: RDP wth TailScale
 
 on:
