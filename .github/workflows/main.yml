@@ -1,4 +1,21 @@
-name: RDP with TailScale
+HOW TO CREATE FREE VPS 
+
+1. Generate auth key = "TAILSCALE_AUTH_KEY" (Description)
+
+2. git hub Actions secrets / New secret= Actions secrets / New secret
+
+3. (your repo name)24-7/.github/workflows
+/= 
+
+
+
+
+
+//////RDP CODE//////
+
+
+
+name: RDP wth TailScale
 
 on:
   workflow_dispatch:
@@ -17,8 +34,7 @@ jobs:
 
       - name: Create RDP User
         run: |
-          $username = "jayadi"
-          $password = "RAfa261006"
+          $password = -join ((33..126) | Get-Random -Count 16 | % {[char]$_})
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
