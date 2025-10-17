@@ -1,55 +1,65 @@
-name: RDP wth TailScale
+name: Windows RDP via Tailscale
 
 on:
   workflow_dispatch:
 
 jobs:
-  rdp-job:
+  windows-rdp:
     runs-on: windows-latest
-    timeout-minutes: 360
+    timeout-minutes: 120  # maks 2 jam supaya kamu sempat konek
 
     steps:
-      - name: Enable RDP
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Restart-Service -Name TermService -Force
+    - name: Checkout repo
+      uses: actions/checkout@v4
 
-      - name: Create RDP User
-        run: |
-          $password = -join ((33..126) | Get-Random -Count 16 | % {[char]$_})
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
-          echo "RDP_USER=RDP" >> $env:GITHUB_ENV
-          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
+    - name: Download Tailscale
+      run: |
+        Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-ipn-setup.exe" -OutFile "tailscale-installer.exe"
+        Start-Process -FilePath .\tailscale-installer.exe -ArgumentList "/quiet" -Wait
 
-      - name: Install Tailscale
-        run: |
-          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
-          $out = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $url -OutFile $out
-          Start-Process msiexec.exe -ArgumentList "/i $out /quiet /norestart" -Wait
+    - name: Start Tailscaled service
+      run: |
+        Start-Service Tailscale
+        Start-Service TailscaleService
+        Start-Sleep -Seconds 5
+        tailscale status || echo "Service started"
 
-      - name: Connect Tailscale
-        run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-${{ github.run_id }}
-          $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-          echo "TS_IP=$ip" >> $env:GITHUB_ENV
+    - name: Authenticate Tailscale
+      env:
+        TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      run: |
+        tailscale up --authkey "$env:TAILSCALE_AUTHKEY" --hostname "win-runner-${env:GITHUB_RUN_ID}" --accept-dns=false --accept-routes=true
+        tailscale ip -4
 
-      - name: Show Connection Info
-        run: |
-          Write-Host "`n============================"
-          Write-Host "✅ RDP Connected Successfully"
-          Write-Host "IP Address (Tailscale): $env:TS_IP"
-          Write-Host "Username: $env:RDP_USER"
-          Write-Host "Password: $env:RDP_PASS"
-          Write-Host "============================`n"
+    - name: Enable RDP and firewall rules
+      run: |
+        # Pastikan RDP aktif
+        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Get-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-      - name: Keep Alive
-        run: |
-          while ($true) {
-            Write-Host "[$(Get-Date)] RDP Running..."
-            Start-Sleep -Seconds 300
-          }
+    - name: Show connection info
+      run: |
+        Write-Host "=================================="
+        Write-Host "Tailscale IP (gunakan di RDP):"
+        tailscale ip -4
+        Write-Host "=================================="
+        Write-Host "Username default RDP: runneradmin"
+        Write-Host "Password: lihat langkah berikut"
+        Write-Host "=================================="
+
+    - name: Show RDP password
+      run: |
+        $pass = (Get-ChildItem Env: | Where-Object {$_.Name -eq "RDPPASSWORD"}).Value
+        if (-not $pass) {
+          $pass = [guid]::NewGuid().ToString().Substring(0,8)
+          Write-Host "Generated password: $pass"
+        } else {
+          Write-Host "Password from env: $pass"
+        }
+
+    - name: Keep session alive
+      run: |
+        Write-Host "RDP aktif. Gunakan Tailscale IP di atas + user runneradmin"
+        Write-Host "Job akan sleep selama 90 menit..."
+        Start-Sleep -Seconds 5400
