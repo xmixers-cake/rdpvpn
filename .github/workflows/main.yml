@@ -1,65 +1,36 @@
-name: Windows RDP via Tailscale
+name: Windows RDP with Tailscale
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Jalanin manual dari GitHub UI
 
 jobs:
-  windows-rdp:
+  setup-rdp:
     runs-on: windows-latest
-    timeout-minutes: 120  # maks 2 jam supaya kamu sempat konek
+    timeout-minutes: 360  # 6 jam, sesuaikan
 
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v4
+      - name: Install and Connect Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_CLIENTID }}
+          oauth-secret: ${{ secrets.TAILSCALE_SECRET }}
+          tags: tag:actions  # Tag buat ACL di Tailscale
 
-    - name: Download Tailscale
-      run: |
-        Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-ipn-setup.exe" -OutFile "tailscale-installer.exe"
-        Start-Process -FilePath .\tailscale-installer.exe -ArgumentList "/quiet" -Wait
+      - name: Enable RDP
+        run: |
+          # Enable RDP connections
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+          # Enable firewall rules for RDP
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          # Require user authentication for security
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+          # Set password for default admin user (runneradmin)
+          $password = ConvertTo-SecureString -AsPlainText "${{ secrets.USER_PASSWORD }}" -Force
+          Set-LocalUser -Name "Administrator" -Password $password  # Ganti ke "runneradmin" kalo user lain
 
-    - name: Start Tailscaled service
-      run: |
-        Start-Service Tailscale
-        Start-Service TailscaleService
-        Start-Sleep -Seconds 5
-        tailscale status || echo "Service started"
-
-    - name: Authenticate Tailscale
-      env:
-        TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
-      run: |
-        tailscale up --authkey "$env:TAILSCALE_AUTHKEY" --hostname "win-runner-${env:GITHUB_RUN_ID}" --accept-dns=false --accept-routes=true
-        tailscale ip -4
-
-    - name: Enable RDP and firewall rules
-      run: |
-        # Pastikan RDP aktif
-        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Get-NetFirewallRule -DisplayGroup "Remote Desktop"
-
-    - name: Show connection info
-      run: |
-        Write-Host "=================================="
-        Write-Host "Tailscale IP (gunakan di RDP):"
-        tailscale ip -4
-        Write-Host "=================================="
-        Write-Host "Username default RDP: runneradmin"
-        Write-Host "Password: lihat langkah berikut"
-        Write-Host "=================================="
-
-    - name: Show RDP password
-      run: |
-        $pass = (Get-ChildItem Env: | Where-Object {$_.Name -eq "RDPPASSWORD"}).Value
-        if (-not $pass) {
-          $pass = [guid]::NewGuid().ToString().Substring(0,8)
-          Write-Host "Generated password: $pass"
-        } else {
-          Write-Host "Password from env: $pass"
-        }
-
-    - name: Keep session alive
-      run: |
-        Write-Host "RDP aktif. Gunakan Tailscale IP di atas + user runneradmin"
-        Write-Host "Job akan sleep selama 90 menit..."
-        Start-Sleep -Seconds 5400
+      - name: Get Tailscale IP and Hang
+        run: |
+          # Print Tailscale IP buat RDP (catat ini!)
+          tailscale ip -4
+          # Hang around biar runner tetep hidup (ganti durasi kalo perlu)
+          Start-Sleep -Seconds 21600  # 6 jam
